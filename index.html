@@ -136,7 +136,7 @@
       <input type="file" id="fileInput" accept=".json" multiple>
       <div class="icon">📄</div>
       <p>Kéo thả file hoặc <strong>click để chọn</strong></p>
-      <div class="hint">Hỗ trợ: Codex Switch, Google Service Account, CLIProxyAPI auth files, raw OAuth JSON</div>
+      <div class="hint">Hỗ trợ: Codex Switch, Google Service Account, CLIProxyAPI auth files, Hermes auth.json, *AiOauth wrappers, raw OAuth JSON</div>
     </div>
 
     <span class="paste-toggle" id="pasteToggle">hoặc paste JSON trực tiếp ↓</span>
@@ -148,6 +148,11 @@
       <div class="actions">
         <button class="btn btn-primary" onclick="handlePaste()">🔄 Parse JSON</button>
       </div>
+    </div>
+
+    <div class="field" style="margin-top:.75rem">
+      <label>Email fallback <span class="optional">(dùng khi file không chứa email — VD: claudeAiOauth)</span></label>
+      <input type="text" id="fallbackEmail" placeholder="user@example.com">
     </div>
   </div>
 
@@ -459,7 +464,8 @@ function convertHermesAuth(data) {
 
   for (const c of creds) {
     const provider = HERMES_PROVIDER_MAP[c.providerKey] || null;
-    const email = c.email || extractEmailFromJWT(c.id_token || c.access_token) || 'unknown';
+    const fb = getFallbackEmail();
+    const email = c.email || extractEmailFromJWT(c.id_token || c.access_token) || fb || 'unknown';
 
     if (provider) {
       const normalized = {
@@ -514,6 +520,10 @@ function convertHermesAuth(data) {
 }
 
 // ===== Process uploaded JSON =====
+function getFallbackEmail() {
+  return document.getElementById('fallbackEmail').value.trim();
+}
+
 function processUploadedJSON(data, filename, explicitProvider) {
   // Hermes Agent auth.json
   if (isHermesAuth(data)) {
@@ -534,6 +544,12 @@ function processUploadedJSON(data, filename, explicitProvider) {
   if (wrapped) {
     data = wrapped.data;
     if (!explicitProvider) explicitProvider = wrapped.provider;
+  }
+
+  // Email fallback: dùng email user nhập khi file không có email
+  if (!data.email) {
+    const fb = getFallbackEmail();
+    if (fb) data.email = fb;
   }
 
   const forceProvider = explicitProvider || (selectedProvider !== 'auto' ? selectedProvider : null);
@@ -562,7 +578,10 @@ function processUploadedJSON(data, filename, explicitProvider) {
 
   if (result) {
     addConvertedFile(result);
-    showStatus('success', `✅ Converted → ${result.filename} (${provider})`);
+    const emailWarn = (!result.json.email || result.json.email === 'unknown') && !getFallbackEmail()
+      ? ' ⚠️ Không có email — nhập "Email fallback" ở trên nếu cần'
+      : '';
+    showStatus('success', `✅ Converted → ${result.filename} (${provider})${emailWarn}`);
     showPreview(convertedFiles.length - 1);
   }
 }
