@@ -340,8 +340,202 @@ function detectProvider(data) {
   return null;
 }
 
+// ===== OAuth wrapper (e.g. {"claudeAiOauth": {...}}) =====
+const OAUTH_WRAPPER_MAP = {
+  claudeaioauth: 'claude',
+  codexaioauth: 'codex',
+  geminiaioauth: 'antigravity',
+  antigravityaioauth: 'antigravity',
+  xaiaioauth: 'xai',
+  kimaiaioauth: 'kimi',
+  vertexaioauth: 'vertex',
+};
+
+function unwrapOAuthWrapper(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const keys = Object.keys(data);
+  if (keys.length !== 1) return null;
+  const key = keys[0];
+  const provider = OAUTH_WRAPPER_MAP[key.toLowerCase()];
+  if (!provider) return null;
+  const inner = data[key];
+  if (!inner || typeof inner !== 'object' || Array.isArray(inner)) return null;
+
+  // camelCase → snake_case
+  const normalized = {};
+  for (const [k, v] of Object.entries(inner)) {
+    if (v === undefined) continue;
+    const snake = k.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
+    normalized[snake] = v;
+  }
+  // expires_at / refresh_token_expires_at (ms epoch) → expired ISO
+  if (normalized.expires_at != null && typeof normalized.expires_at === 'number') {
+    normalized.expired = new Date(normalized.expires_at).toISOString();
+  }
+  if (!normalized.email) {
+    normalized.email = extractEmailFromJWT(normalized.id_token || normalized.access_token) || undefined;
+  }
+  return { provider, data: normalized };
+}
+
+// ===== Hermes Agent auth.json =====
+const HERMES_PROVIDER_MAP = {
+  'openai-codex': 'codex',
+  'codex': 'codex',
+  'anthropic': 'claude',
+  'claude': 'claude',
+  'gemini': 'antigravity',
+  'antigravity': 'antigravity',
+  'xai': 'xai',
+  'grok': 'xai',
+  'kimi': 'kimi',
+  'moonshot': 'kimi',
+  'vertex': 'vertex',
+};
+
+function isHermesAuth(data) {
+  return !!(data && typeof data === 'object' && !Array.isArray(data) &&
+    ((data.providers && typeof data.providers === 'object') ||
+     (data.credential_pool && typeof data.credential_pool === 'object')));
+}
+
+function extractHermesCredentials(data) {
+  const creds = [];
+  const seen = new Set();
+
+  function addCred(providerKey, c) {
+    if (!c || typeof c !== 'object') return;
+    const tokens = c.tokens || c;
+    const at = tokens.access_token || '';
+    const rt = tokens.refresh_token || '';
+    if (!at) return;
+    if (seen.has(at)) return;
+    seen.add(at);
+    creds.push({
+      providerKey,
+      access_token: at,
+      refresh_token: rt,
+      id_token: tokens.id_token || '',
+      email: c.email || tokens.email || '',
+      base_url: c.base_url || c.inference_base_url || c.resource_url || c.portal_base_url || '',
+      last_refresh: c.last_refresh || tokens.last_refresh || '',
+      expires_at: c.expires_at || c.expires_at_ms || tokens.expires_at || '',
+    });
+  }
+
+  // 1. providers — entries may hold tokens directly or under `tokens` (openai-codex)
+  if (data.providers && typeof data.providers === 'object') {
+    for (const [key, p] of Object.entries(data.providers)) {
+      if (p && typeof p === 'object') {
+        if (p.tokens && (p.tokens.access_token || p.tokens.refresh_token)) {
+          addCred(key, { ...p.tokens, last_refresh: p.last_refresh, email: p.email, base_url: p.base_url });
+        } else if (p.access_token || p.refresh_token) {
+          addCred(key, p);
+        }
+      }
+    }
+  }
+
+  // 2. credential_pool — arrays of credentials per provider
+  if (data.credential_pool && typeof data.credential_pool === 'object') {
+    for (const [key, arr] of Object.entries(data.credential_pool)) {
+      if (!Array.isArray(arr)) continue;
+      for (const c of arr) {
+        if (c && typeof c === 'object' &&
+            (c.auth_type === 'oauth' || (!c.auth_type && c.access_token && c.refresh_token))) {
+          addCred(key, c);
+        }
+      }
+    }
+  }
+
+  return creds;
+}
+
+function convertHermesAuth(data) {
+  const creds = extractHermesCredentials(data);
+  const results = [];
+  const warnings = [];
+
+  for (const c of creds) {
+    const provider = HERMES_PROVIDER_MAP[c.providerKey] || null;
+    const email = c.email || extractEmailFromJWT(c.id_token || c.access_token) || 'unknown';
+
+    if (provider) {
+      const normalized = {
+        access_token: c.access_token,
+        refresh_token: c.refresh_token,
+        email: email,
+      };
+      if (c.id_token) normalized.id_token = c.id_token;
+      if (c.last_refresh) normalized.last_refresh = c.last_refresh;
+      if (c.expires_at) {
+        normalized.expired = typeof c.expires_at === 'number'
+          ? new Date(c.expires_at).toISOString()
+          : c.expires_at;
+      }
+      if (c.base_url) normalized.base_url = c.base_url;
+
+      let result;
+      try {
+        switch (provider) {
+          case 'codex': result = convertCodex(normalized); break;
+          case 'claude': result = convertClaude(normalized); break;
+          case 'antigravity': result = convertAntigravity(normalized); break;
+          case 'xai': result = convertXAI(normalized); break;
+          case 'kimi': result = convertKimi(normalized); break;
+          case 'vertex': result = convertVertex(normalized); break;
+        }
+      } catch (err) {
+        warnings.push(`Lỗi convert "${c.providerKey}": ${err.message}`);
+      }
+      if (result) results.push(result);
+    } else {
+      // Unsupported provider → raw file for storage
+      const raw = {
+        type: 'raw',
+        source_provider: c.providerKey,
+        access_token: c.access_token,
+        refresh_token: c.refresh_token,
+        email: email,
+      };
+      if (c.base_url) raw.base_url = c.base_url;
+      if (c.id_token) raw.id_token = c.id_token;
+      results.push({
+        filename: `raw-${sanitize(c.providerKey)}-${sanitize(email)}.json`,
+        json: raw,
+        provider: 'raw:' + c.providerKey,
+      });
+      warnings.push(`Provider "${c.providerKey}" không được CLIProxyAPI hỗ trợ → xuất file raw để lưu trữ`);
+    }
+  }
+
+  return { results, warnings };
+}
+
 // ===== Process uploaded JSON =====
 function processUploadedJSON(data, filename, explicitProvider) {
+  // Hermes Agent auth.json
+  if (isHermesAuth(data)) {
+    const { results, warnings } = convertHermesAuth(data);
+    if (results.length === 0) {
+      showStatus('error', 'Không tìm thấy OAuth credentials nào trong Hermes auth.json');
+      return;
+    }
+    results.forEach(r => addConvertedFile(r));
+    const w = warnings.length ? ' ⚠️ ' + warnings.join(' | ') : '';
+    showStatus('success', `✅ Hermes auth.json → ${results.length} files${w}`);
+    showPreview(convertedFiles.length - 1);
+    return;
+  }
+
+  // *AiOauth wrapper (e.g. {"claudeAiOauth": {...}})
+  const wrapped = unwrapOAuthWrapper(data);
+  if (wrapped) {
+    data = wrapped.data;
+    if (!explicitProvider) explicitProvider = wrapped.provider;
+  }
+
   const forceProvider = explicitProvider || (selectedProvider !== 'auto' ? selectedProvider : null);
   const provider = forceProvider || detectProvider(data);
 
@@ -554,7 +748,14 @@ function extractEmailFromJWT(token) {
     const parts = token.split('.');
     if (parts.length < 2) return null;
     const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.email || payload.sub || null;
+    if (payload.email) return payload.email;
+    // Nested profile email (OpenAI JWT: "https://api.openai.com/profile": {email})
+    for (const key of Object.keys(payload)) {
+      if (key.includes('profile') && payload[key] && typeof payload[key] === 'object' && payload[key].email) {
+        return payload[key].email;
+      }
+    }
+    return payload.sub || null;
   } catch { return null; }
 }
 
