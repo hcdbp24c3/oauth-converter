@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLIProxyAPI — OAuth File Converter</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #242836;
+    --border: #2e3348; --text: #e4e6f0; --text2: #9498ae;
+    --accent: #6c5ce7; --accent2: #a29bfe; --green: #00cec9;
+    --red: #ff6b6b; --orange: #fdcb6e; --blue: #74b9ff;
+    --radius: 12px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .header { text-align:center; padding: 2rem 1rem 1rem; }
+  .header h1 { font-size: 1.8rem; font-weight: 700; }
+  .header h1 span { color: var(--accent2); }
+  .header p { color: var(--text2); margin-top: .4rem; font-size: .95rem; }
+
+  .container { max-width: 900px; margin: 0 auto; padding: 1rem 1.5rem 3rem; }
+
+  /* Provider tabs */
+  .tabs { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+  .tab { padding: .5rem 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; font-size: .85rem; transition: all .2s; }
+  .tab:hover { border-color: var(--accent); color: var(--text); }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .tab .icon { margin-right: .3rem; }
+
+  /* Card */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem; }
+  .card h2 { font-size: 1.1rem; margin-bottom: 1rem; display: flex; align-items: center; gap: .5rem; }
+  .card h2 .badge { font-size: .7rem; padding: .15rem .5rem; border-radius: 4px; background: var(--accent); color: #fff; font-weight: 500; }
+
+  /* Drop zone */
+  .dropzone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 2.5rem; text-align: center; cursor: pointer; transition: all .2s; position: relative; }
+  .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: rgba(108,92,231,.06); }
+  .dropzone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .dropzone .icon { font-size: 2rem; margin-bottom: .5rem; }
+  .dropzone p { color: var(--text2); font-size: .9rem; }
+  .dropzone .hint { font-size: .78rem; color: var(--text2); margin-top: .4rem; opacity: .7; }
+
+  /* Form */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .form-grid.full { grid-template-columns: 1fr; }
+  @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+  .field { display: flex; flex-direction: column; gap: .3rem; }
+  .field label { font-size: .8rem; color: var(--text2); font-weight: 500; }
+  .field input, .field textarea, .field select {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: .6rem .8rem; color: var(--text); font-size: .9rem; outline: none; transition: border .2s;
+    font-family: inherit;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); }
+  .field textarea { min-height: 120px; resize: vertical; font-family: 'SF Mono', 'Fira Code', monospace; font-size: .82rem; }
+  .field .optional { color: var(--text2); font-size: .75rem; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: .4rem; padding: .6rem 1.2rem; border-radius: 8px; border: none; font-size: .9rem; font-weight: 600; cursor: pointer; transition: all .2s; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-green { background: var(--green); color: #000; }
+  .btn-green:hover { opacity: .85; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text2); }
+  .btn-outline:hover { border-color: var(--text); color: var(--text); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1.2rem; }
+
+  /* Preview */
+  .preview-area { display: none; }
+  .preview-area.visible { display: block; }
+  .preview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .75rem; }
+  .preview-header h3 { font-size: .95rem; }
+  .preview-filename { font-size: .8rem; color: var(--green); font-family: monospace; }
+  .json-preview {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1rem; font-family: 'SF Mono', 'Fira Code', monospace; font-size: .82rem;
+    max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+    line-height: 1.5;
+  }
+  .json-preview .key { color: var(--blue); }
+  .json-preview .str { color: var(--green); }
+  .json-preview .bool { color: var(--orange); }
+  .json-preview .null { color: var(--red); }
+
+  /* File list */
+  .file-list { margin-top: 1rem; }
+  .file-item { display: flex; justify-content: space-between; align-items: center; padding: .6rem .8rem; background: var(--surface2); border-radius: 8px; margin-bottom: .5rem; }
+  .file-item .name { font-family: monospace; font-size: .85rem; }
+  .file-item .meta { font-size: .75rem; color: var(--text2); }
+  .file-item .remove { background: none; border: none; color: var(--red); cursor: pointer; font-size: 1.1rem; padding: 0 .3rem; }
+
+  /* Status messages */
+  .msg { padding: .7rem 1rem; border-radius: 8px; font-size: .85rem; margin-bottom: 1rem; display: none; }
+  .msg.error { display: block; background: rgba(255,107,107,.12); color: var(--red); border: 1px solid rgba(255,107,107,.25); }
+  .msg.success { display: block; background: rgba(0,206,201,.12); color: var(--green); border: 1px solid rgba(0,206,201,.25); }
+  .msg.info { display: block; background: rgba(116,185,255,.12); color: var(--blue); border: 1px solid rgba(116,185,255,.25); }
+
+  /* JSON paste area */
+  .paste-toggle { font-size: .82rem; color: var(--accent2); cursor: pointer; text-decoration: underline; margin-top: .5rem; display: inline-block; }
+  .paste-area { display: none; margin-top: .75rem; }
+  .paste-area.visible { display: block; }
+
+  /* Footer */
+  .footer { text-align: center; padding: 2rem 1rem; color: var(--text2); font-size: .78rem; }
+  .footer a { color: var(--accent2); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>CLI<span>ProxyAPI</span> Converter</h1>
+  <p>Convert OAuth files thành format CLIProxyAPI có thể import được</p>
+</div>
+
+<div class="container">
+  <!-- Provider tabs -->
+  <div class="tabs" id="tabs">
+    <div class="tab active" data-provider="auto"><span class="icon">🔍</span>Auto-detect</div>
+    <div class="tab" data-provider="codex"><span class="icon">🤖</span>Codex (OpenAI)</div>
+    <div class="tab" data-provider="claude"><span class="icon">🧠</span>Claude (Anthropic)</div>
+    <div class="tab" data-provider="antigravity"><span class="icon">✨</span>Antigravity (Gemini)</div>
+    <div class="tab" data-provider="xai"><span class="icon">🚀</span>xAI (Grok)</div>
+    <div class="tab" data-provider="kimi"><span class="icon">🌙</span>Kimi</div>
+    <div class="tab" data-provider="vertex"><span class="icon">☁️</span>Vertex (GCP)</div>
+  </div>
+
+  <div id="status" class="msg"></div>
+
+  <!-- Upload card -->
+  <div class="card">
+    <h2>📁 Upload OAuth File <span class="badge">JSON</span></h2>
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept=".json" multiple>
+      <div class="icon">📄</div>
+      <p>Kéo thả file hoặc <strong>click để chọn</strong></p>
+      <div class="hint">Hỗ trợ: Codex Switch, Google Service Account, CLIProxyAPI auth files, raw OAuth JSON</div>
+    </div>
+
+    <span class="paste-toggle" id="pasteToggle">hoặc paste JSON trực tiếp ↓</span>
+    <div class="paste-area" id="pasteArea">
+      <div class="field" style="margin-top:.5rem">
+        <label>Paste JSON content</label>
+        <textarea id="jsonPaste" placeholder='{"type":"codex","access_token":"...","refresh_token":"..."}'></textarea>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="handlePaste()">🔄 Parse JSON</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual form card -->
+  <div class="card">
+    <h2>✏️ Nhập tay Token <span class="badge">Manual</span></h2>
+    <div class="form-grid">
+      <div class="field">
+        <label>Provider</label>
+        <select id="manualProvider">
+          <option value="codex">Codex (OpenAI)</option>
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="antigravity">Antigravity (Gemini)</option>
+          <option value="xai">xAI (Grok)</option>
+          <option value="kimi">Kimi</option>
+          <option value="vertex">Vertex (GCP Service Account)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="text" id="manualEmail" placeholder="user@example.com">
+      </div>
+      <div class="field">
+        <label>Access Token *</label>
+        <input type="password" id="manualAccessToken" placeholder="eyJ...">
+      </div>
+      <div class="field">
+        <label>Refresh Token *</label>
+        <input type="password" id="manualRefreshToken" placeholder="eyJ...">
+      </div>
+      <div class="field" id="manualIdTokenField">
+        <label>ID Token <span class="optional">(optional)</span></label>
+        <input type="password" id="manualIdToken" placeholder="eyJ...">
+      </div>
+      <div class="field" id="manualProjectIdField" style="display:none">
+        <label>Project ID <span class="optional">(for Antigravity/Vertex)</span></label>
+        <input type="text" id="manualProjectId" placeholder="my-gcp-project">
+      </div>
+      <div class="field" id="manualExpiredField">
+        <label>Expired At <span class="optional">(RFC3339, auto if empty)</span></label>
+        <input type="text" id="manualExpired" placeholder="2026-12-31T23:59:59Z">
+      </div>
+    </div>
+    <!-- Vertex-specific: Service Account JSON -->
+    <div id="vertexSAField" style="display:none; margin-top:1rem;">
+      <div class="field">
+        <label>GCP Service Account JSON <span class="optional">(paste full SA key JSON)</span></label>
+        <textarea id="manualServiceAccount" placeholder='{"type":"service_account","project_id":"...","private_key":"..."}'></textarea>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="handleManualConvert()">🔄 Convert</button>
+    </div>
+  </div>
+
+  <!-- File list -->
+  <div class="card" id="fileListCard" style="display:none">
+    <h2>📋 Files đã convert</h2>
+    <div class="file-list" id="fileList"></div>
+    <div class="actions">
+      <button class="btn btn-green" onclick="downloadAll()" id="downloadAllBtn">⬇️ Download tất cả (.zip)</button>
+      <button class="btn btn-outline" onclick="clearAll()">🗑️ Xóa tất cả</button>
+    </div>
+  </div>
+
+  <!-- Preview -->
+  <div class="card preview-area" id="previewCard">
+    <div class="preview-header">
+      <h3>👁️ Preview</h3>
+      <span class="preview-filename" id="previewFilename"></span>
+    </div>
+    <div class="json-preview" id="jsonPreview"></div>
+    <div class="actions">
+      <button class="btn btn-green" onclick="downloadSingle()" id="downloadSingleBtn">⬇️ Download file này</button>
+      <button class="btn btn-outline" onclick="copyToClipboard()">📋 Copy JSON</button>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  CLIProxyAPI OAuth Converter — All processing happens in your browser. No data is sent anywhere.<br>
+  <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank">github.com/router-for-me/CLIProxyAPI</a>
+</div>
+
+<script>
+// ===== State =====
+let selectedProvider = 'auto';
+let convertedFiles = []; // { filename, json, provider }
+let currentPreviewIndex = -1;
+
+// ===== Tab switching =====
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    selectedProvider = tab.dataset.provider;
+    updateFormVisibility();
+  });
+});
+
+function updateFormVisibility() {
+  const p = selectedProvider;
+  document.getElementById('manualProjectIdField').style.display = (p === 'antigravity' || p === 'vertex') ? '' : 'none';
+  document.getElementById('manualIdTokenField').style.display = (p === 'codex' || p === 'xai') ? '' : 'none';
+  document.getElementById('manualExpiredField').style.display = (p === 'vertex') ? 'none' : '';
+  document.getElementById('vertexSAField').style.display = (p === 'vertex') ? '' : 'none';
+  document.getElementById('manualProvider').value = (p === 'auto') ? 'codex' : p;
+}
+
+// ===== File handling =====
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+function handleFiles(files) {
+  for (const file of files) {
+    if (!file.name.endsWith('.json')) {
+      showStatus('error', `File ${file.name} không phải JSON`);
+      continue;
+    }
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const data = JSON.parse(e.target.result);
+        processUploadedJSON(data, file.name);
+      } catch (err) {
+        showStatus('error', `File ${file.name} JSON không hợp lệ: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  }
+}
+
+// ===== Paste JSON =====
+document.getElementById('pasteToggle').addEventListener('click', () => {
+  document.getElementById('pasteArea').classList.toggle('visible');
+});
+
+function handlePaste() {
+  const raw = document.getElementById('jsonPaste').value.trim();
+  if (!raw) { showStatus('error', 'Vui lòng paste JSON'); return; }
+  try {
+    const data = JSON.parse(raw);
+    processUploadedJSON(data, 'pasted.json');
+    document.getElementById('jsonPaste').value = '';
+  } catch (err) {
+    showStatus('error', `JSON không hợp lệ: ${err.message}`);
+  }
+}
+
+// ===== Auto-detect provider =====
+function detectProvider(data) {
+  // GCP Service Account
+  if (data.type === 'service_account' && data.private_key && data.client_email) return 'vertex';
+  // CLIProxyAPI format
+  if (data.type === 'codex') return 'codex';
+  if (data.type === 'claude') return 'claude';
+  if (data.type === 'antigravity') return 'antigravity';
+  if (data.type === 'xai') return 'xai';
+  if (data.type === 'kimi') return 'kimi';
+  if (data.type === 'vertex') return 'vertex';
+  // Codex Switch / OpenAI patterns
+  if (data.id_token && data.access_token && data.refresh_token) {
+    // Try to detect from JWT payload
+    try {
+      const payload = JSON.parse(atob(data.id_token.split('.')[1]));
+      if (payload.azp === 'czIzNllNMkluc1EyYXhuazl2OGFwaS5vcGVuYWkuY29t') return 'codex'; // Codex client
+      if (payload.iss?.includes('anthropic')) return 'claude';
+      if (payload.iss?.includes('google')) return 'antigravity';
+      if (payload.iss?.includes('x.ai')) return 'xai';
+    } catch {}
+    // Fallback heuristics
+    if (data.chatgpt_account_id || data.account_id) return 'codex';
+    if (data.account_uuid || data.organization_uuid) return 'claude';
+    if (data.project_id && data.access_token?.startsWith('ya29')) return 'antigravity';
+    return 'codex'; // default to codex for generic OAuth
+  }
+  if (data.access_token && data.refresh_token) {
+    if (data.project_id) return 'antigravity';
+    return 'codex';
+  }
+  return null;
+}
+
+// ===== Process uploaded JSON =====
+function processUploadedJSON(data, filename, explicitProvider) {
+  const forceProvider = explicitProvider || (selectedProvider !== 'auto' ? selectedProvider : null);
+  const provider = forceProvider || detectProvider(data);
+
+  if (!provider) {
+    showStatus('error', 'Không thể tự detect provider. Vui lòng chọn provider ở tab trên.');
+    return;
+  }
+
+  let result;
+  try {
+    switch (provider) {
+      case 'codex': result = convertCodex(data, filename); break;
+      case 'claude': result = convertClaude(data, filename); break;
+      case 'antigravity': result = convertAntigravity(data, filename); break;
+      case 'xai': result = convertXAI(data, filename); break;
+      case 'kimi': result = convertKimi(data, filename); break;
+      case 'vertex': result = convertVertex(data, filename); break;
+      default: showStatus('error', `Provider "${provider}" chưa được hỗ trợ`); return;
+    }
+  } catch (err) {
+    showStatus('error', `Lỗi convert: ${err.message}`);
+    return;
+  }
+
+  if (result) {
+    addConvertedFile(result);
+    showStatus('success', `✅ Converted → ${result.filename} (${provider})`);
+    showPreview(convertedFiles.length - 1);
+  }
+}
+
+// ===== Converters =====
+function convertCodex(data, filename) {
+  const now = new Date().toISOString();
+  const email = data.email || extractEmailFromJWT(data.id_token) || extractEmailFromJWT(data.access_token) || 'unknown';
+  const accountId = data.account_id || extractFieldFromJWT(data.id_token, 'chatgpt_account_id') || '';
+
+  const out = {
+    type: 'codex',
+    access_token: data.access_token || '',
+    refresh_token: data.refresh_token || '',
+    email: email,
+    expired: data.expired || data.expires_at || computeExpiry(data),
+    last_refresh: data.last_refresh || now,
+  };
+  if (data.id_token) out.id_token = data.id_token;
+  if (accountId) out.account_id = accountId;
+
+  const outFilename = `codex-${sanitize(email)}.json`;
+  return { filename: outFilename, json: out, provider: 'codex' };
+}
+
+function convertClaude(data, filename) {
+  const now = new Date().toISOString();
+  const email = data.email || extractEmailFromJWT(data.access_token) || 'unknown';
+
+  const out = {
+    type: 'claude',
+    access_token: data.access_token || '',
+    refresh_token: data.refresh_token || '',
+    email: email,
+    expired: data.expired || data.expires_at || computeExpiry(data),
+    last_refresh: data.last_refresh || now,
+  };
+  if (data.id_token) out.id_token = data.id_token;
+  if (data.account_uuid) out.account_uuid = data.account_uuid;
+  if (data.organization_uuid) out.organization_uuid = data.organization_uuid;
+  if (data.organization_name) out.organization_name = data.organization_name;
+  if (data.claude_device_ids) out.claude_device_ids = data.claude_device_ids;
+
+  const outFilename = `claude-${sanitize(email)}.json`;
+  return { filename: outFilename, json: out, provider: 'claude' };
+}
+
+function convertAntigravity(data, filename) {
+  const now = new Date().toISOString();
+  const email = data.email || extractEmailFromJWT(data.access_token) || 'unknown';
+  const projectId = data.project_id || '';
+
+  const out = {
+    type: 'antigravity',
+    access_token: data.access_token || '',
+    refresh_token: data.refresh_token || '',
+    email: email,
+    expired: data.expired || data.expires_at || computeExpiry(data),
+    last_refresh: data.last_refresh || now,
+  };
+  if (projectId) out.project_id = projectId;
+
+  const outFilename = `antigravity-${sanitize(email)}.json`;
+  return { filename: outFilename, json: out, provider: 'antigravity' };
+}
+
+function convertXAI(data, filename) {
+  const now = new Date().toISOString();
+  const email = data.email || extractEmailFromJWT(data.id_token || data.access_token) || 'unknown';
+
+  const out = {
+    type: 'xai',
+    auth_kind: 'oauth',
+    access_token: data.access_token || '',
+    refresh_token: data.refresh_token || '',
+    email: email,
+    expired: data.expired || data.expires_at || computeExpiry(data),
+    last_refresh: data.last_refresh || now,
+  };
+  if (data.id_token) out.id_token = data.id_token;
+  if (data.token_type) out.token_type = data.token_type;
+  if (data.expires_in) out.expires_in = data.expires_in;
+  if (data.sub) out.sub = data.sub;
+  if (data.base_url) out.base_url = data.base_url;
+  if (data.redirect_uri) out.redirect_uri = data.redirect_uri;
+  if (data.token_endpoint) out.token_endpoint = data.token_endpoint;
+
+  const outFilename = `xai-${sanitize(email)}.json`;
+  return { filename: outFilename, json: out, provider: 'xai' };
+}
+
+function convertKimi(data, filename) {
+  const now = new Date().toISOString();
+  const email = data.email || extractEmailFromJWT(data.access_token) || 'unknown';
+
+  const out = {
+    type: 'kimi',
+    access_token: data.access_token || '',
+    refresh_token: data.refresh_token || '',
+    token_type: data.token_type || 'Bearer',
+    expired: data.expired || data.expires_at || computeExpiry(data),
+  };
+  if (data.scope) out.scope = data.scope;
+  if (data.device_id) out.device_id = data.device_id;
+
+  const outFilename = `kimi-${sanitize(email)}.json`;
+  return { filename: outFilename, json: out, provider: 'kimi' };
+}
+
+function convertVertex(data, filename) {
+  // Handle GCP Service Account key file
+  if (data.type === 'service_account' && data.private_key) {
+    const projectId = data.project_id || 'unknown';
+    const email = data.client_email || '';
+
+    const out = {
+      type: 'vertex',
+      service_account: data,
+      project_id: projectId,
+      email: email,
+      location: 'us-central1',
+    };
+
+    const outFilename = `vertex-${sanitize(projectId)}.json`;
+    return { filename: outFilename, json: out, provider: 'vertex' };
+  }
+
+  // Already a CLIProxyAPI vertex file
+  if (data.type === 'vertex') {
+    return { filename: filename, json: data, provider: 'vertex' };
+  }
+
+  throw new Error('Vertex cần GCP Service Account JSON (có private_key, project_id, client_email)');
+}
+
+// ===== Manual form =====
+function handleManualConvert() {
+  const provider = document.getElementById('manualProvider').value;
+  const email = document.getElementById('manualEmail').value.trim() || 'unknown';
+  const accessToken = document.getElementById('manualAccessToken').value.trim();
+  const refreshToken = document.getElementById('manualRefreshToken').value.trim();
+  const idToken = document.getElementById('manualIdToken').value.trim();
+  const projectId = document.getElementById('manualProjectId').value.trim();
+  const expired = document.getElementById('manualExpired').value.trim();
+  const saJson = document.getElementById('manualServiceAccount').value.trim();
+
+  if (!accessToken) { showStatus('error', 'Access Token là bắt buộc'); return; }
+  if (!refreshToken && provider !== 'vertex') { showStatus('error', 'Refresh Token là bắt buộc'); return; }
+
+  const now = new Date().toISOString();
+  const data = {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    id_token: idToken || undefined,
+    email: email !== 'unknown' ? email : undefined,
+    project_id: projectId || undefined,
+    expired: expired || undefined,
+  };
+
+  if (provider === 'vertex' && saJson) {
+    try {
+      const sa = JSON.parse(saJson);
+      Object.assign(data, sa);
+    } catch {
+      showStatus('error', 'Service Account JSON không hợp lệ');
+      return;
+    }
+  }
+
+  // Manual form always uses the provider from the select (tab only matters for uploads)
+  processUploadedJSON(data, `${provider}-${email}.json`, provider);
+
+  // Clear form
+  document.getElementById('manualAccessToken').value = '';
+  document.getElementById('manualRefreshToken').value = '';
+  document.getElementById('manualIdToken').value = '';
+}
+
+// ===== Helpers =====
+function extractEmailFromJWT(token) {
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload.email || payload.sub || null;
+  } catch { return null; }
+}
+
+function extractFieldFromJWT(token, field) {
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload[field] || null;
+  } catch { return null; }
+}
+
+function computeExpiry(data) {
+  if (data.expires_in && data.timestamp) {
+    const ts = typeof data.timestamp === 'number' ? data.timestamp : new Date(data.timestamp).getTime();
+    return new Date(ts + data.expires_in * 1000).toISOString();
+  }
+  if (data.expires_in && data.issued_at) {
+    const ts = typeof data.issued_at === 'number' ? data.issued_at : new Date(data.issued_at).getTime();
+    return new Date(ts + data.expires_in * 1000).toISOString();
+  }
+  // Default: 1 hour from now
+  return new Date(Date.now() + 3600000).toISOString();
+}
+
+function sanitize(s) {
+  return (s || 'unknown').replace(/[^a-zA-Z0-9._@-]/g, '_').substring(0, 80);
+}
+
+function showStatus(type, msg) {
+  const el = document.getElementById('status');
+  el.className = 'msg ' + type;
+  el.textContent = msg;
+  setTimeout(() => { el.className = 'msg'; }, 5000);
+}
+
+// ===== File management =====
+function addConvertedFile(result) {
+  convertedFiles.push(result);
+  renderFileList();
+}
+
+function renderFileList() {
+  const card = document.getElementById('fileListCard');
+  const list = document.getElementById('fileList');
+  if (convertedFiles.length === 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  list.innerHTML = convertedFiles.map((f, i) => `
+    <div class="file-item" onclick="showPreview(${i})" style="cursor:pointer">
+      <div>
+        <div class="name">${escHtml(f.filename)}</div>
+        <div class="meta">${f.provider} • ${JSON.stringify(f.json).length} bytes</div>
+      </div>
+      <button class="remove" onclick="event.stopPropagation();removeFile(${i})" title="Xóa">×</button>
+    </div>
+  `).join('');
+}
+
+function removeFile(i) {
+  convertedFiles.splice(i, 1);
+  renderFileList();
+  if (currentPreviewIndex === i) {
+    document.getElementById('previewCard').classList.remove('visible');
+    currentPreviewIndex = -1;
+  } else if (currentPreviewIndex > i) {
+    currentPreviewIndex--;
+  }
+}
+
+function clearAll() {
+  convertedFiles = [];
+  currentPreviewIndex = -1;
+  renderFileList();
+  document.getElementById('previewCard').classList.remove('visible');
+}
+
+// ===== Preview =====
+function showPreview(index) {
+  if (index < 0 || index >= convertedFiles.length) return;
+  currentPreviewIndex = index;
+  const f = convertedFiles[index];
+  document.getElementById('previewFilename').textContent = f.filename;
+  document.getElementById('jsonPreview').innerHTML = syntaxHighlight(JSON.stringify(f.json, null, 2));
+  document.getElementById('previewCard').classList.add('visible');
+  document.getElementById('previewCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function syntaxHighlight(json) {
+  return json.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+    match => {
+      let cls = 'num';
+      if (/^"/.test(match)) {
+        cls = /:$/.test(match) ? 'key' : 'str';
+      } else if (/true|false/.test(match)) {
+        cls = 'bool';
+      } else if (/null/.test(match)) {
+        cls = 'null';
+      }
+      return `<span class="${cls}">${match}</span>`;
+    });
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ===== Downloads =====
+function downloadSingle() {
+  if (currentPreviewIndex < 0) return;
+  const f = convertedFiles[currentPreviewIndex];
+  downloadFile(f.filename, JSON.stringify(f.json, null, 2));
+}
+
+function downloadAll() {
+  if (convertedFiles.length === 0) return;
+  if (convertedFiles.length === 1) {
+    downloadSingle();
+    return;
+  }
+  // Build a ZIP in-browser (STORE method, no compression) — no external deps
+  try {
+    const zipBlob = buildZip(convertedFiles.map(f => ({ name: f.filename, content: JSON.stringify(f.json, null, 2) })));
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'cliproxyapi-auth-files.zip';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    showStatus('error', `Không tạo được ZIP (${err.message}). Download từng file: `);
+    convertedFiles.forEach((f, i) => setTimeout(() => downloadFile(f.filename, JSON.stringify(f.json, null, 2)), i * 200));
+  }
+}
+
+// Minimal ZIP writer (STORE, no compression)
+function buildZip(files) {
+  const enc = new TextEncoder();
+  const crcTable = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(buf) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function u16(v) { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, v, true); return b; }
+  function u32(v) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v, true); return b; }
+
+  const parts = [];
+  const central = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const dataBytes = enc.encode(f.content);
+    const crc = crc32(dataBytes);
+    const size = dataBytes.length;
+
+    // Local file header
+    const lfh = new Uint8Array(30);
+    new DataView(lfh.buffer).setUint32(0, 0x04034b50, true); // signature
+    new DataView(lfh.buffer).setUint16(4, 20, true); // version needed
+    new DataView(lfh.buffer).setUint16(6, 0x0800, true); // flags (UTF-8)
+    new DataView(lfh.buffer).setUint16(8, 0, true); // method: STORE
+    new DataView(lfh.buffer).setUint16(10, 0, true); // time
+    new DataView(lfh.buffer).setUint16(12, 0x21, true); // date
+    new DataView(lfh.buffer).setUint32(14, crc, true);
+    new DataView(lfh.buffer).setUint32(18, size, true);
+    new DataView(lfh.buffer).setUint32(22, size, true);
+    new DataView(lfh.buffer).setUint16(26, nameBytes.length, true);
+    new DataView(lfh.buffer).setUint16(28, 0, true); // extra len
+
+    parts.push(lfh, nameBytes, dataBytes);
+
+    // Central directory entry
+    const cd = new Uint8Array(46);
+    new DataView(cd.buffer).setUint32(0, 0x02014b50, true); // signature
+    new DataView(cd.buffer).setUint16(4, 20, true); // version made by
+    new DataView(cd.buffer).setUint16(6, 20, true); // version needed
+    new DataView(cd.buffer).setUint16(8, 0x0800, true); // flags
+    new DataView(cd.buffer).setUint16(10, 0, true); // method
+    new DataView(cd.buffer).setUint16(12, 0, true); // time
+    new DataView(cd.buffer).setUint16(14, 0x21, true); // date
+    new DataView(cd.buffer).setUint32(16, crc, true);
+    new DataView(cd.buffer).setUint32(20, size, true);
+    new DataView(cd.buffer).setUint32(24, size, true);
+    new DataView(cd.buffer).setUint16(28, nameBytes.length, true);
+    new DataView(cd.buffer).setUint16(30, 0, true); // extra len
+    new DataView(cd.buffer).setUint16(32, 0, true); // comment len
+    new DataView(cd.buffer).setUint16(34, 0, true); // disk start
+    new DataView(cd.buffer).setUint16(36, 0, true); // internal attrs
+    new DataView(cd.buffer).setUint32(38, 0, true); // external attrs
+    new DataView(cd.buffer).setUint32(42, offset, true); // local header offset
+    central.push(cd, nameBytes);
+
+    offset += lfh.length + nameBytes.length + dataBytes.length;
+  }
+
+  // End of central directory
+  const cdSize = central.reduce((s, b) => s + b.length, 0);
+  const eocd = new Uint8Array(22);
+  new DataView(eocd.buffer).setUint32(0, 0x06054b50, true); // signature
+  new DataView(eocd.buffer).setUint16(4, 0, true); // disk num
+  new DataView(eocd.buffer).setUint16(6, 0, true); // cd start disk
+  new DataView(eocd.buffer).setUint16(8, files.length, true); // entries this disk
+  new DataView(eocd.buffer).setUint16(10, files.length, true); // total entries
+  new DataView(eocd.buffer).setUint32(12, cdSize, true); // cd size
+  new DataView(eocd.buffer).setUint32(16, offset, true); // cd offset
+  new DataView(eocd.buffer).setUint16(20, 0, true); // comment len
+
+  return new Blob([...parts, ...central, eocd], { type: 'application/zip' });
+}
+
+function downloadFile(filename, content) {
+  const blob = new Blob([content], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function copyToClipboard() {
+  if (currentPreviewIndex < 0) return;
+  const f = convertedFiles[currentPreviewIndex];
+  navigator.clipboard.writeText(JSON.stringify(f.json, null, 2)).then(() => {
+    showStatus('success', '📋 Đã copy JSON vào clipboard');
+  }).catch(() => {
+    showStatus('error', 'Không thể copy');
+  });
+}
+
+// Init
+updateFormVisibility();
+</script>
+</body>
+</html>
